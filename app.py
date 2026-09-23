@@ -84,6 +84,11 @@ def load_data():
     return run_pipeline()
 
 
+if st.sidebar.button("🚀 Run Detection", width="stretch"):
+    st.cache_data.clear()
+    st.rerun()
+
+
 try:
     df = load_data()
 
