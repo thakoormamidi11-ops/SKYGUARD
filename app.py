@@ -9,7 +9,7 @@ from pipeline import run_pipeline
 
 
 # ============================================================
-# PAGE SETTINGS
+# PAGE CONFIGURATION
 # ============================================================
 
 st.set_page_config(
@@ -20,9 +20,8 @@ st.set_page_config(
 
 
 # ============================================================
-# TITLE
+# SIDEBAR
 # ============================================================
-# ---------------- SIDEBAR ----------------
 
 with st.sidebar:
 
@@ -63,6 +62,46 @@ with st.sidebar:
     st.write("**Track:** Cybersecurity & Defense")
     st.write("**Team:** The Paradise")
     st.write("**Project:** SKYGUARD")
+
+
+# ============================================================
+# DETECTION PIPELINE
+# ============================================================
+
+@st.cache_data
+def load_data():
+    return run_pipeline()
+
+
+if st.sidebar.button(
+    "🚀 Run Detection",
+    width="stretch"
+):
+    st.cache_data.clear()
+    st.rerun()
+
+
+# ============================================================
+# LOAD DATA
+# ============================================================
+
+try:
+
+    df = load_data()
+
+except Exception as e:
+
+    st.error("Unable to load SKYGUARD.")
+
+    st.code(str(e))
+
+    st.stop()
+
+
+# ============================================================
+# HEADER
+# ============================================================
+
 st.title("✈️ SKYGUARD")
 
 st.subheader(
@@ -76,34 +115,14 @@ st.write(
 
 
 # ============================================================
-# LOAD DATA
-# ============================================================
-
-@st.cache_data
-def load_data():
-    return run_pipeline()
-
-
-if st.sidebar.button("🚀 Run Detection", width="stretch"):
-    st.cache_data.clear()
-    st.rerun()
-
-
-try:
-    df = load_data()
-
-except Exception as e:
-    st.error("Unable to load SKYGUARD.")
-    st.code(str(e))
-    st.stop()
-
-
-# ============================================================
-# SUMMARY
+# KEY METRICS
 # ============================================================
 
 total_observations = len(df)
-total_aircraft = df["aircraft_id"].nunique()
+
+total_aircraft = (
+    df["aircraft_id"].nunique()
+)
 
 total_alerts = len(
     df[df["risk_level"] != "NORMAL"]
@@ -124,20 +143,39 @@ low_alerts = len(
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
-col1.metric("Observations", total_observations)
-col2.metric("Aircraft", total_aircraft)
-col3.metric("Total Alerts", total_alerts)
-col4.metric("HIGH", high_alerts)
-col5.metric("MEDIUM", medium_alerts)
+
+col1.metric(
+    "Observations",
+    total_observations
+)
+
+col2.metric(
+    "Aircraft",
+    total_aircraft
+)
+
+col3.metric(
+    "Total Alerts",
+    total_alerts
+)
+
+col4.metric(
+    "HIGH",
+    high_alerts
+)
+
+col5.metric(
+    "MEDIUM",
+    medium_alerts
+)
 
 
 st.divider()
 
 
 # ============================================================
-# AIRCRAFT MAP
+# DEMO CONTROLS
 # ============================================================
-# ---------------- DEMO CONTROLS ----------------
 
 st.sidebar.divider()
 
@@ -153,17 +191,34 @@ demo_mode = st.sidebar.selectbox(
     ]
 )
 
+
 if demo_mode == "Show High Risk":
-    map_data = df[df["risk_level"] == "HIGH"]
+
+    map_data = df[
+        df["risk_level"] == "HIGH"
+    ]
 
 elif demo_mode == "Show Medium Risk":
-    map_data = df[df["risk_level"] == "MEDIUM"]
+
+    map_data = df[
+        df["risk_level"] == "MEDIUM"
+    ]
 
 elif demo_mode == "Show Anomalies Only":
-    map_data = df[df["risk_level"] != "NORMAL"]
+
+    map_data = df[
+        df["risk_level"] != "NORMAL"
+    ]
 
 else:
+
     map_data = df
+
+
+# ============================================================
+# AIRCRAFT TRACKING MAP
+# ============================================================
+
 st.subheader("🗺️ Aircraft Tracking")
 
 fig = px.scatter_geo(
@@ -206,17 +261,21 @@ st.plotly_chart(
 
 
 # ============================================================
-# ALERTS
+# ANOMALY ALERTS
 # ============================================================
 
 st.subheader("🚨 Anomaly Alerts")
+
 st.write(
     "Alerts are generated using rule-based checks "
     "combined with Isolation Forest anomaly detection."
-) 
+)
+
+
 alerts = df[
     df["risk_level"] != "NORMAL"
 ].copy()
+
 
 alerts = alerts.sort_values(
     "risk_score",
@@ -255,38 +314,55 @@ else:
 # AIRCRAFT INVESTIGATION
 # ============================================================
 
+st.divider()
+
 st.subheader("🔎 Aircraft Investigation")
 
-aircraft_list = sorted(df["aircraft_id"].unique())
 
-selected_aircraft = st.selectbox(
+aircraft_list = sorted(
+    df["aircraft_id"].unique()
+)
+
+
+selected_aircraft_id = st.selectbox(
     "Select Aircraft",
     aircraft_list
 )
 
-aircraft_data = df[
-    df["aircraft_id"] == selected_aircraft
+
+selected_data = df[
+    df["aircraft_id"] == selected_aircraft_id
 ].copy()
 
-maximum_risk = aircraft_data["risk_score"].max()
 
-aircraft_alerts = len(
-    aircraft_data[
-        aircraft_data["risk_level"] != "NORMAL"
+# ------------------------------------------------------------
+# Selected aircraft statistics
+# ------------------------------------------------------------
+
+maximum_risk = selected_data[
+    "risk_score"
+].max()
+
+
+highest_risk_level = selected_data.loc[
+    selected_data["risk_score"].idxmax(),
+    "risk_level"
+]
+
+
+ml_anomaly_count = len(
+    selected_data[
+        selected_data["ml_prediction"] == -1
     ]
 )
 
-ml_anomalies = len(
-    aircraft_data[
-        aircraft_data["ml_prediction"] == -1
-    ]
-)
 
 col1, col2, col3 = st.columns(3)
 
+
 col1.metric(
-    "Aircraft ID",
-    selected_aircraft
+    "Aircraft",
+    selected_aircraft_id
 )
 
 col2.metric(
@@ -296,101 +372,264 @@ col2.metric(
 
 col3.metric(
     "ML Anomalies",
-    ml_anomalies
+    ml_anomaly_count
 )
 
-st.subheader("✈️ Aircraft Trajectory")
 
-trajectory_fig = px.line_geo(
-    aircraft_data,
-    lat="latitude",
-    lon="longitude",
+# ============================================================
+# SELECT MOST IMPORTANT OBSERVATION
+# ============================================================
+
+selected_row = selected_data.loc[
+    selected_data["risk_score"].idxmax()
+]
+
+
+st.divider()
+
+
+# ============================================================
+# ALERT SUMMARY
+# ============================================================
+
+st.markdown("### 🚨 Detection Result")
+
+
+if highest_risk_level == "HIGH":
+
+    st.error(
+        f"HIGH RISK — Aircraft {selected_aircraft_id}"
+    )
+
+elif highest_risk_level == "MEDIUM":
+
+    st.warning(
+        f"MEDIUM RISK — Aircraft {selected_aircraft_id}"
+    )
+
+elif highest_risk_level == "LOW":
+
+    st.info(
+        f"LOW RISK — Aircraft {selected_aircraft_id}"
+    )
+
+else:
+
+    st.success(
+        f"NORMAL — Aircraft {selected_aircraft_id}"
+    )
+
+
+st.write(
+    f"**Risk Score:** "
+    f"{selected_row['risk_score']:.1f} / 100"
+)
+
+
+# ============================================================
+# EXPLANATION
+# ============================================================
+
+st.markdown("### 💡 Why Was This Aircraft Flagged?")
+
+
+st.info(
+    selected_row["explanation"]
+)
+
+
+# ============================================================
+# EVIDENCE SIGNALS
+# ============================================================
+
+st.markdown("### 🔍 Evidence Signals")
+
+
+evidence = {
+
+    "🚨 Speed Anomaly":
+        bool(selected_row["speed_anomaly"]),
+
+    "📈 Altitude Anomaly":
+        bool(selected_row["altitude_anomaly"]),
+
+    "📍 Position Anomaly":
+        bool(selected_row["position_anomaly"]),
+
+    "⬆️ Large Altitude Change":
+        bool(
+            selected_row[
+                "altitude_change_anomaly"
+            ]
+        ),
+
+    "🤖 ML Anomaly":
+        selected_row["ml_prediction"] == -1
+}
+
+
+for signal, detected in evidence.items():
+
+    if detected:
+
+        st.error(
+            f"{signal} — DETECTED"
+        )
+
+    else:
+
+        st.success(
+            f"{signal} — Normal"
+        )
+
+
+# ============================================================
+# ISOLATION FOREST SCORE
+# ============================================================
+
+st.markdown("### 🤖 Isolation Forest")
+
+
+ml_score = selected_row[
+    "ml_anomaly_score"
+]
+
+
+st.write(
+    f"**ML Anomaly Score:** {ml_score:.3f}"
+)
+
+
+st.progress(
+    float(ml_score)
+)
+
+
+if ml_score >= 0.7:
+
+    st.error(
+        "Isolation Forest classified this observation "
+        "as highly unusual."
+    )
+
+elif ml_score >= 0.4:
+
+    st.warning(
+        "Isolation Forest detected moderately unusual behavior."
+    )
+
+else:
+
+    st.success(
+        "Isolation Forest found relatively normal behavior."
+    )
+
+
+# ============================================================
+# TRAJECTORY
+# ============================================================
+
+st.markdown("### 🛫 Aircraft Trajectory")
+
+
+trajectory_fig = px.line(
+    selected_data,
+    x="longitude",
+    y="latitude",
+    markers=True,
     hover_data=[
         "timestamp",
         "altitude",
         "speed",
-        "risk_score",
-        "ml_anomaly_score"
-    ],
-    height=450
+        "risk_score"
+    ]
 )
 
-trajectory_fig.update_geos(
-    showcountries=True,
-    showcoastlines=True,
-    showland=True,
-    showocean=True,
-    fitbounds="locations"
-)
 
 trajectory_fig.update_layout(
-    margin=dict(r=0, t=0, l=0, b=0)
+    height=450,
+    xaxis_title="Longitude",
+    yaxis_title="Latitude"
 )
+
 
 st.plotly_chart(
     trajectory_fig,
     width="stretch"
 )
 
-st.subheader("💡 Detection Explanation")
 
-investigation_alerts = aircraft_data[
-    aircraft_data["risk_level"] != "NORMAL"
-]
+# ============================================================
+# OBSERVATION DETAILS
+# ============================================================
 
-if len(investigation_alerts) == 0:
+st.markdown("### 📋 Selected Observation")
 
-    st.success(
-        "No suspicious behavior detected for this aircraft."
-    )
 
-else:
+details = pd.DataFrame({
+    "Parameter": [
+        "Aircraft ID",
+        "Timestamp",
+        "Latitude",
+        "Longitude",
+        "Altitude",
+        "Speed",
+        "Risk Score",
+        "Risk Level",
+        "ML Anomaly Score"
+    ],
 
-    selected_alert = investigation_alerts.sort_values(
-        "risk_score",
-        ascending=False
-    ).iloc[0]
+    "Value": [
+        selected_row["aircraft_id"],
+        selected_row["timestamp"],
+        selected_row["latitude"],
+        selected_row["longitude"],
+        selected_row["altitude"],
+        selected_row["speed"],
+        selected_row["risk_score"],
+        selected_row["risk_level"],
+        selected_row["ml_anomaly_score"]
+    ]
+})
 
-    st.warning(
-        f"{selected_alert['risk_level']} RISK — "
-        f"Score: {selected_alert['risk_score']:.1f}"
-    )
 
-    st.write(
-        f"**Why was this aircraft flagged?** "
-        f"{selected_alert['explanation']}"
-    )
+st.dataframe(
+    details,
+    width="stretch",
+    hide_index=True
+)
 
-    st.write(
-        f"**Isolation Forest score:** "
-        f"{selected_alert['ml_anomaly_score']:.3f}"
-    )
-
-    st.write(
-        f"**Evidence signals:** "
-        f"{selected_alert['evidence_count']}"
-    )
 
 # ============================================================
 # RISK DISTRIBUTION
 # ============================================================
 
+st.divider()
+
 st.subheader("📊 Risk Distribution")
+
 
 risk_counts = (
     df["risk_level"]
     .value_counts()
     .reindex(
-        ["NORMAL", "LOW", "MEDIUM", "HIGH"],
+        [
+            "NORMAL",
+            "LOW",
+            "MEDIUM",
+            "HIGH"
+        ],
         fill_value=0
     )
     .reset_index()
 )
 
+
 risk_counts.columns = [
     "Risk Level",
     "Observations"
 ]
+
 
 risk_fig = px.bar(
     risk_counts,
@@ -399,9 +638,11 @@ risk_fig = px.bar(
     text="Observations"
 )
 
+
 risk_fig.update_layout(
     height=400
 )
+
 
 st.plotly_chart(
     risk_fig,
@@ -418,4 +659,9 @@ st.divider()
 st.caption(
     "SKYGUARD — Detect Earlier • Explain Clearly • "
     "Help Humans Investigate"
+)
+
+st.caption(
+    "Prototype for ASYNC'26 | Team The Paradise | "
+    "Track: Cybersecurity & Defense"
 )
