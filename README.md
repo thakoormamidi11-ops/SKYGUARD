@@ -1,159 +1,66 @@
-# ✈️ SKYGUARD
+# SKYGUARD
 
 ## Explainable AI for ADS-B Airspace Anomaly Detection
 
-SKYGUARD is a software-based airspace monitoring prototype that analyzes ADS-B aircraft observations and detects suspicious flight behavior.
+SKYGUARD is a software-based prototype that detects suspicious aircraft behavior from ADS-B data and explains the evidence behind each alert.
 
-The system combines rule-based detection with Isolation Forest anomaly detection and generates an explainable risk score for each observation.
+The system analyzes aircraft position, speed, altitude, and movement changes using behavioral rules and anomaly scoring. The detected signals are combined into a risk score and presented through an interactive Streamlit dashboard.
 
 ---
 
-## 🎯 Problem
+## Problem
 
-ADS-B provides aircraft information such as:
+ADS-B (Automatic Dependent Surveillance-Broadcast) allows aircraft to broadcast information such as:
 
-- Position
+- Aircraft identity
+- Latitude
+- Longitude
 - Altitude
 - Speed
-- Aircraft identity
-- Time information
+- Timestamp
 
-Suspicious or inconsistent observations can make airspace monitoring difficult, especially when large amounts of aircraft data must be analyzed.
+ADS-B messages are not cryptographically authenticated. As a result, monitoring systems may receive false, inconsistent, or manipulated surveillance information.
 
-SKYGUARD automatically identifies unusual behavior and provides evidence explaining why an observation was flagged.
+Suspicious aircraft behavior can include:
 
----
-
-## 💡 Solution
-
-SKYGUARD follows this pipeline:
-
-ADS-B Data  
-↓  
-Feature Extraction  
-↓  
-Rule-Based Detection  
-↓  
-Isolation Forest  
-↓  
-Evidence Fusion  
-↓  
-Risk Score  
-↓  
-Explainable Alert  
-↓  
-Map Visualization
-
----
-
-## 🔍 Detection Signals
-
-SKYGUARD currently analyzes:
-
-### Kinematic Signals
-
-- Aircraft speed
-- Altitude
-- Speed change
-- Altitude change
-
-### Trajectory Signals
-
-- Latitude change
-- Longitude change
-- Position change
-
-### Anomaly Signals
-
+- Sudden position changes
 - Unrealistic speed
 - Abnormal altitude
-- Sudden position change
-- Large altitude change
-- Isolation Forest anomaly score
+- Large altitude changes
+- Unusual flight behavior
+
+SKYGUARD focuses on detecting these suspicious patterns and helping an analyst understand why an observation was flagged.
 
 ---
 
-## 🤖 Machine Learning
+## Solution
 
-SKYGUARD uses the **Isolation Forest** algorithm for unsupervised anomaly detection.
+SKYGUARD uses a multi-signal approach combining:
 
-The model analyzes aircraft behavior features and identifies observations that differ significantly from normal patterns.
+- Behavioral rule checks
+- Aircraft movement features
+- Anomaly scoring
+- Risk scoring
+- Explainable alerts
+- Geospatial visualization
 
-The ML result is combined with rule-based evidence to produce a final risk score.
-
----
-
-## 📊 Risk Levels
-
-| Risk Level | Meaning |
-|---|---|
-| NORMAL | No significant suspicious behavior |
-| LOW | Limited anomaly evidence |
-| MEDIUM | Multiple anomaly signals |
-| HIGH | Strong anomaly evidence |
-
----
-
-## 💡 Explainable Alerts
-
-Instead of only showing an anomaly score, SKYGUARD provides an explanation.
-
-Example:
-
-> HIGH RISK — unrealistic speed + sudden position change
-
-This helps an operator understand why an observation was flagged.
-
----
-
-## 🗺️ Dashboard
-
-The Streamlit dashboard provides:
-
-- Aircraft tracking map
-- Total observations
-- Number of aircraft
-- Alert count
-- Risk levels
-- Aircraft investigation
-- Aircraft trajectory
-- Isolation Forest score
-- Detection explanation
-- Risk distribution
-- Demo filtering controls
-
----
-
-## 🛠️ Technology Stack
-
-- Python
-- Pandas
-- NumPy
-- Scikit-learn
-- Isolation Forest
-- Streamlit
-- Plotly
-
----
-
-## 📁 Project Structure
+### Detection Pipeline
 
 ```text
-SKYGUARD/
-│
-├── data/
-│   ├── generate_data.py
-│   ├── adsb_data.csv
-│   ├── detected_anomalies.csv
-│   └── final_results.csv
-│
-├── src/
-│   ├── anomaly_detection.py
-│   ├── features.py
-│   ├── anomaly_model.py
-│   ├── explanation.py
-│   └── pipeline.py
-│
-├── app.py
-├── requirements.txt
-└── README.md
+ADS-B Data
+     ↓
+Data Loading
+     ↓
+Feature Engineering
+     ↓
+Behavioral Rule Checks
+     ↓
+Anomaly Scoring
+     ↓
+Evidence Fusion
+     ↓
+Risk Score
+     ↓
+Explanation
+     ↓
+Streamlit Dashboard
