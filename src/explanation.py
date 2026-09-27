@@ -5,6 +5,7 @@ def generate_explanation(row):
 
     reasons = []
 
+    # Rule-based evidence
     if row.get("speed_anomaly", False):
         reasons.append("unrealistic speed")
 
@@ -17,7 +18,11 @@ def generate_explanation(row):
     if row.get("altitude_change_anomaly", False):
         reasons.append("large altitude change")
 
-    if row.get("ml_anomaly_score", 0) >= 0.7:
+    # ML evidence
+    if (
+        row.get("ml_prediction", 1) == -1
+        and row.get("ml_anomaly_score", 0) >= 0.7
+    ):
         reasons.append("ML anomaly detected")
 
     if not reasons:

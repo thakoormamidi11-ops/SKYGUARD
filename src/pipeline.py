@@ -1,8 +1,9 @@
 import pandas as pd
 
-from features import create_features
-from anomaly_model import calculate_ml_anomaly_score
-from explanation import add_explanations
+from src.data_loader import load_adsb_data
+from src.features import create_features
+from src.anomaly_model import calculate_ml_anomaly_score
+from src.explanation import add_explanations
 
 
 INPUT_FILE = "data/adsb_data.csv"
@@ -11,32 +12,53 @@ OUTPUT_FILE = "data/final_results.csv"
 
 def run_pipeline():
 
-    # 1. Load ADS-B data
-    df = pd.read_csv(INPUT_FILE)
+    # =========================================================
+    # 1. LOAD ADS-B DATA
+    # =========================================================
 
-    # 2. Create movement/trajectory features
+    df = load_adsb_data(INPUT_FILE)
+
+    # =========================================================
+    # 2. CREATE FEATURES
+    # =========================================================
+
     df = create_features(df)
 
-    # 3. Rule-based anomaly detection
-    df["speed_anomaly"] = df["speed"] > 800
+    # =========================================================
+    # 3. RULE-BASED ANOMALY DETECTION
+    # =========================================================
 
+    # Unrealistic speed
+    df["speed_anomaly"] = (
+        df["speed"] > 800
+    )
+
+    # Abnormal altitude
     df["altitude_anomaly"] = (
         (df["altitude"] < 20000)
         | (df["altitude"] > 45000)
     )
 
+    # Sudden position change
     df["position_anomaly"] = (
         df["position_change"] > 0.5
     )
 
+    # Large altitude change
     df["altitude_change_anomaly"] = (
         df["abs_altitude_change"] > 2000
     )
 
-    # 4. Isolation Forest
+    # =========================================================
+    # 4. ML / FALLBACK ANOMALY DETECTION
+    # =========================================================
+
     df = calculate_ml_anomaly_score(df)
 
-    # 5. Count rule-based evidence
+    # =========================================================
+    # 5. COUNT EVIDENCE
+    # =========================================================
+
     df["evidence_count"] = (
         df["speed_anomaly"].astype(int)
         + df["altitude_anomaly"].astype(int)
@@ -44,13 +66,98 @@ def run_pipeline():
         + df["altitude_change_anomaly"].astype(int)
     )
 
-    # 6. Combine rules + ML score
-    df["risk_score"] = (
-        df["evidence_count"] * 20
-        + df["ml_anomaly_score"] * 40
-    ).clip(upper=100).round(1)
+    # =========================================================
+    # 6. CALCULATE INDIVIDUAL RISK COMPONENTS
+    # =========================================================
 
-    # 7. Risk level
+    # ---------------------------------------------------------
+    # Speed risk
+    # ---------------------------------------------------------
+
+    speed_risk = (
+        ((df["speed"] - 800) / 400) * 100
+    ).clip(0, 100)
+
+    # ---------------------------------------------------------
+    # Altitude risk
+    # ---------------------------------------------------------
+
+    high_altitude_risk = (
+        ((df["altitude"] - 45000) / 15000) * 100
+    ).clip(0, 100)
+
+    low_altitude_risk = (
+        ((20000 - df["altitude"]) / 10000) * 100
+    ).clip(0, 100)
+
+    altitude_risk = pd.concat(
+        [high_altitude_risk, low_altitude_risk],
+        axis=1
+    ).max(axis=1)
+
+    # ---------------------------------------------------------
+    # Position risk
+    # ---------------------------------------------------------
+
+    position_risk = (
+        ((df["position_change"] - 0.5) / 5) * 100
+    ).clip(0, 100)
+
+    # ---------------------------------------------------------
+    # Altitude-change risk
+    # ---------------------------------------------------------
+
+    altitude_change_risk = (
+        ((df["abs_altitude_change"] - 2000) / 5000) * 100
+    ).clip(0, 100)
+
+    # ---------------------------------------------------------
+    # ML risk
+    # ---------------------------------------------------------
+
+    ml_risk = (
+        df["ml_anomaly_score"] * 100
+    )
+
+    # =========================================================
+    # 7. COMBINE RISK COMPONENTS
+    # =========================================================
+
+    # Use the strongest concrete signal as the main risk
+    # and allow ML to increase confidence.
+
+    strongest_rule_risk = pd.concat(
+        [
+            speed_risk,
+            altitude_risk,
+            position_risk,
+            altitude_change_risk
+        ],
+        axis=1
+    ).max(axis=1)
+
+    df["risk_score"] = (
+        strongest_rule_risk * 0.70
+        + ml_risk * 0.30
+    )
+
+    # Multiple independent signals increase confidence.
+    df.loc[
+        df["evidence_count"] >= 2,
+        "risk_score"
+    ] += 10
+
+    # Cap the final score.
+    df["risk_score"] = (
+        df["risk_score"]
+        .clip(0, 100)
+        .round(1)
+    )
+
+    # =========================================================
+    # 8. ASSIGN RISK LEVEL
+    # =========================================================
+
     df["risk_level"] = "NORMAL"
 
     df.loc[
@@ -68,42 +175,19 @@ def run_pipeline():
         "risk_level"
     ] = "HIGH"
 
-    # 8. Generate explanation
+    # =========================================================
+    # 9. GENERATE EXPLANATION
+    # =========================================================
+
     df = add_explanations(df)
 
-    # 9. Save final results
+    # =========================================================
+    # 10. SAVE RESULTS
+    # =========================================================
+
     df.to_csv(
         OUTPUT_FILE,
         index=False
     )
 
     return df
-
-
-if __name__ == "__main__":
-
-    results = run_pipeline()
-
-    print("SKYGUARD pipeline completed!")
-
-    print(
-        f"Saved to: {OUTPUT_FILE}"
-    )
-
-    print("\nAlerts:")
-
-    alerts = results[
-        results["risk_level"] != "NORMAL"
-    ]
-
-    print(
-        alerts[
-            [
-                "aircraft_id",
-                "timestamp",
-                "risk_score",
-                "risk_level",
-                "explanation"
-            ]
-        ].to_string(index=False)
-    )

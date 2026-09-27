@@ -1,11 +1,14 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
+import math
 import sys
 
 sys.path.append("src")
 
 from pipeline import run_pipeline
+from anomaly_model import SKLEARN_AVAILABLE
 
 
 # ============================================================
@@ -37,7 +40,11 @@ with st.sidebar:
 
     st.success("● Detection Engine Online")
     st.success("● ADS-B Data Loaded")
-    st.success("● Isolation Forest Active")
+
+    if SKLEARN_AVAILABLE:
+        st.success("● Isolation Forest Active")
+    else:
+        st.warning("● Fallback Anomaly Detection Active")
 
     st.divider()
 
@@ -49,7 +56,12 @@ with st.sidebar:
     st.write("↓")
     st.write("🔍 Rule Detection")
     st.write("↓")
-    st.write("🤖 Isolation Forest")
+
+    if SKLEARN_AVAILABLE:
+        st.write("🤖 Isolation Forest")
+    else:
+        st.write("🤖 Fallback Anomaly Scoring")
+
     st.write("↓")
     st.write("📊 Risk Scoring")
     st.write("↓")
@@ -143,7 +155,6 @@ low_alerts = len(
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
-
 col1.metric(
     "Observations",
     total_observations
@@ -192,6 +203,39 @@ demo_mode = st.sidebar.selectbox(
 )
 
 
+# Demo explanation
+
+st.sidebar.markdown("### 🧪 Demo Scenario")
+
+if demo_mode == "Show High Risk":
+
+    st.sidebar.error(
+        "Showing aircraft with the highest-risk behavior. "
+        "Use this mode to demonstrate suspicious activity."
+    )
+
+elif demo_mode == "Show Medium Risk":
+
+    st.sidebar.warning(
+        "Showing medium-risk aircraft for investigation "
+        "and continued monitoring."
+    )
+
+elif demo_mode == "Show Anomalies Only":
+
+    st.sidebar.info(
+        "Showing aircraft observations that triggered "
+        "at least one anomaly signal."
+    )
+
+else:
+
+    st.sidebar.success(
+        "Showing all aircraft observations, including "
+        "normal and anomalous behavior."
+    )
+
+
 if demo_mode == "Show High Risk":
 
     map_data = df[
@@ -216,48 +260,349 @@ else:
 
 
 # ============================================================
-# AIRCRAFT TRACKING MAP
+# BENGALURU AIRSPACE MONITORING MAP
 # ============================================================
 
-st.subheader("🗺️ Aircraft Tracking")
+st.subheader("🗺️ Bengaluru Airspace Monitoring")
 
-fig = px.scatter_geo(
-    map_data,
-    lat="latitude",
-    lon="longitude",
-    color="risk_level",
-    hover_name="aircraft_id",
-    hover_data=[
-        "timestamp",
-        "altitude",
-        "speed",
-        "risk_score",
-        "explanation"
-    ],
-    height=550
+# Kempegowda International Airport (BLR)
+BLR_LAT = 13.1986
+BLR_LON = 77.7066
+RADIUS_KM = 50
+
+# ------------------------------------------------------------
+# 50 KM RADIUS CALCULATION
+# ------------------------------------------------------------
+
+def distance_from_blr(latitude, longitude):
+    """Return distance from BLR airport in kilometres."""
+    earth_radius = 6371.0
+    lat1 = math.radians(BLR_LAT)
+    lon1 = math.radians(BLR_LON)
+    lat2 = math.radians(latitude)
+    lon2 = math.radians(longitude)
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+    )
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return earth_radius * c
+
+
+def create_radius_circle(lat, lon, radius_km, points=180):
+    """Create latitude/longitude points for an accurate radius circle."""
+    earth_radius = 6371.0
+    lat_points = []
+    lon_points = []
+    lat1 = math.radians(lat)
+    lon1 = math.radians(lon)
+    angular_distance = radius_km / earth_radius
+
+    for i in range(points + 1):
+        bearing = math.radians(i * 360 / points)
+        lat2 = math.asin(
+            math.sin(lat1) * math.cos(angular_distance)
+            + math.cos(lat1) * math.sin(angular_distance) * math.cos(bearing)
+        )
+        lon2 = (
+            lon1
+            + math.atan2(
+                math.sin(bearing) * math.sin(angular_distance) * math.cos(lat1),
+                math.cos(angular_distance) - math.sin(lat1) * math.sin(lat2),
+            )
+        )
+        lat_points.append(math.degrees(lat2))
+        lon_points.append(math.degrees(lon2))
+
+    return lat_points, lon_points
+
+
+# ------------------------------------------------------------
+# PREPARE MAP DATA
+# ------------------------------------------------------------
+
+map_data = map_data.copy()
+map_data["distance_from_blr"] = map_data.apply(
+    lambda row: distance_from_blr(row["latitude"], row["longitude"]),
+    axis=1,
 )
+map_data = map_data[map_data["distance_from_blr"] <= RADIUS_KM].copy()
 
-fig.update_geos(
-    showcountries=True,
-    showcoastlines=True,
-    showland=True,
-    showocean=True,
-    fitbounds="locations"
-)
 
-fig.update_layout(
-    margin=dict(
-        r=0,
-        t=0,
-        l=0,
-        b=0
+# ------------------------------------------------------------
+# FLIGHT-MONITORING THEME
+# ------------------------------------------------------------
+# This keeps the existing ADS-B data and anomaly logic, but makes
+# the visualization resemble a professional air-traffic display.
+
+risk_colors = {
+    "NORMAL": "#39d98a",
+    "LOW": "#b8d94e",
+    "MEDIUM": "#ff9f1c",
+    "HIGH": "#ff3b30",
+}
+
+risk_order = {"NORMAL": 0, "LOW": 1, "MEDIUM": 2, "HIGH": 3}
+
+fig = go.Figure()
+
+
+# ------------------------------------------------------------
+# 50 KM SECURITY PERIMETER
+# ------------------------------------------------------------
+
+circle_lat, circle_lon = create_radius_circle(BLR_LAT, BLR_LON, RADIUS_KM)
+
+fig.add_trace(
+    go.Scattermap(
+        lat=circle_lat,
+        lon=circle_lon,
+        mode="lines",
+        line=dict(color="#20d9ff", width=2),
+        opacity=0.55,
+        name="50 KM Security Perimeter",
+        hoverinfo="skip",
+        showlegend=False,
     )
 )
 
+
+# ------------------------------------------------------------
+# AIRPORT / CONTROL CENTRE
+# ------------------------------------------------------------
+
+fig.add_trace(
+    go.Scattermap(
+        lat=[BLR_LAT],
+        lon=[BLR_LON],
+        mode="markers+text",
+        text=["VOBL"],
+        textposition="bottom center",
+        textfont=dict(size=10, color="#55e6ff"),
+        marker=dict(size=13, color="#55e6ff"),
+        name="BLR Airport",
+        hovertemplate=(
+            "<b>Kempegowda International Airport</b>"
+            "<br>ICAO: VOBL"
+            "<br>Monitoring radius: 50 km"
+            "<extra></extra>"
+        ),
+        showlegend=False,
+    )
+)
+
+
+# ------------------------------------------------------------
+# AIRCRAFT TRACKS
+# ------------------------------------------------------------
+
+aircraft_ids = sorted(map_data["aircraft_id"].unique())
+
+for aircraft_id in aircraft_ids:
+    aircraft = map_data[
+        map_data["aircraft_id"] == aircraft_id
+    ].sort_values("timestamp").copy()
+
+    if aircraft.empty:
+        continue
+
+    # IMPORTANT: every track is built only from this aircraft's
+    # own timestamp-sorted observations. Different aircraft are
+    # never connected to one another.
+    highest_risk = max(
+        aircraft["risk_level"],
+        key=lambda value: risk_order.get(value, 0),
+    )
+    aircraft_color = risk_colors.get(highest_risk, "#39d98a")
+
+    # Draw a very faint glow underneath the main flight path.
+    fig.add_trace(
+        go.Scattermap(
+            lat=aircraft["latitude"],
+            lon=aircraft["longitude"],
+            mode="lines",
+            line=dict(color=aircraft_color, width=7),
+            opacity=0.08,
+            hoverinfo="skip",
+            showlegend=False,
+        )
+    )
+
+    # Main aviation-style path.
+    fig.add_trace(
+        go.Scattermap(
+            lat=aircraft["latitude"],
+            lon=aircraft["longitude"],
+            mode="lines",
+            line=dict(color=aircraft_color, width=2),
+            opacity=0.88,
+            name=f"{aircraft_id} Track",
+            showlegend=False,
+            hoverinfo="skip",
+        )
+    )
+
+    # Previous observations are tiny points; latest position is
+    # deliberately larger so the aircraft's current location is clear.
+    previous = aircraft.iloc[:-1]
+    latest = aircraft.iloc[-1]
+
+    if not previous.empty:
+        fig.add_trace(
+            go.Scattermap(
+                lat=previous["latitude"],
+                lon=previous["longitude"],
+                mode="markers",
+                marker=dict(size=3, color=aircraft_color, opacity=0.55),
+                hoverinfo="skip",
+                showlegend=False,
+            )
+        )
+
+    latest_distance = float(latest["distance_from_blr"])
+
+    fig.add_trace(
+        go.Scattermap(
+            lat=[latest["latitude"]],
+            lon=[latest["longitude"]],
+            mode="markers+text",
+            marker=dict(size=11, color=aircraft_color, opacity=1.0),
+            text=[f"✈ {aircraft_id}"],
+            textposition="top center",
+            textfont=dict(size=10, color="#d9faff"),
+            name=aircraft_id,
+            hovertemplate=(
+                f"<b>✈ {aircraft_id}</b>"
+                f"<br>Risk: {latest['risk_level']}"
+                f"<br>Risk Score: {latest['risk_score']:.1f}/100"
+                f"<br>Altitude: {latest['altitude']:.0f} ft"
+                f"<br>Speed: {latest['speed']:.0f}"
+                f"<br>Distance from BLR: {latest_distance:.1f} km"
+                f"<br>Reason: {latest['explanation']}"
+                "<extra></extra>"
+            ),
+            showlegend=True,
+        )
+    )
+
+
+# ------------------------------------------------------------
+# ANOMALY SIGNALS
+# ------------------------------------------------------------
+
+anomalies = map_data[
+    map_data["risk_level"].isin(["MEDIUM", "HIGH"])
+].copy()
+
+if not anomalies.empty:
+    # Orange for medium and red for high, matching the reference
+    # flight-monitoring visual language.
+    for level, color in [("MEDIUM", "#ff9f1c"), ("HIGH", "#ff3b30")]:
+        level_data = anomalies[anomalies["risk_level"] == level]
+        if level_data.empty:
+            continue
+
+        fig.add_trace(
+            go.Scattermap(
+                lat=level_data["latitude"],
+                lon=level_data["longitude"],
+                mode="markers",
+                marker=dict(size=18, color=color, opacity=0.18),
+                text=level_data["aircraft_id"],
+                customdata=level_data[["risk_level", "risk_score"]].to_numpy(),
+                hovertemplate=(
+                    "<b>⚠ ANOMALY DETECTED</b>"
+                    "<br>Aircraft: %{text}"
+                    "<br>Risk: %{customdata[0]}"
+                    "<br>Score: %{customdata[1]:.1f}/100"
+                    "<extra></extra>"
+                ),
+                name=f"{level} Alert",
+                showlegend=True,
+            )
+        )
+
+
+# ------------------------------------------------------------
+# MAP LAYOUT — DARK FLIGHT SURVEILLANCE STYLE
+# ------------------------------------------------------------
+
+fig.update_layout(
+    map=dict(
+        # Dark cartographic base instead of the bright default OSM map.
+        # This is Plotly's built-in dark basemap and needs no external tile key.
+        style="carto-darkmatter",
+        center=dict(lat=BLR_LAT, lon=BLR_LON),
+        zoom=9.25,
+    ),
+    height=700,
+    margin=dict(l=0, r=0, t=58, b=0),
+    paper_bgcolor="#02070b",
+    plot_bgcolor="#02070b",
+    title=dict(
+        text=(
+            "<b>SKYGUARD • AIRSPACE SURVEILLANCE</b>"
+            "<br><sup>LIVE-STYLE ADS-B TRACK MONITOR • BLR / VOBL • 50 KM</sup>"
+        ),
+        x=0.018,
+        y=0.975,
+        xanchor="left",
+        font=dict(size=17, color="#d8f7ff"),
+    ),
+    legend=dict(
+        orientation="h",
+        yanchor="bottom",
+        y=0.012,
+        xanchor="left",
+        x=0.015,
+        bgcolor="rgba(2,7,11,0.88)",
+        bordercolor="rgba(84,230,255,0.25)",
+        borderwidth=1,
+        font=dict(size=10, color="#c8e8ee"),
+    ),
+)
+
+
+# ------------------------------------------------------------
+# DISPLAY MAP
+# ------------------------------------------------------------
+
 st.plotly_chart(
     fig,
-    width="stretch"
+    width="stretch",
+    config={
+        "scrollZoom": True,
+        "displaylogo": False,
+        "doubleClick": "reset",
+    },
 )
+
+
+# ------------------------------------------------------------
+# MAP STATUS
+# ------------------------------------------------------------
+
+map_col1, map_col2, map_col3, map_col4 = st.columns(4)
+
+with map_col1:
+    st.metric("Monitoring Radius", "50 km")
+
+with map_col2:
+    st.metric("Aircraft Inside Zone", map_data["aircraft_id"].nunique())
+
+with map_col3:
+    st.metric("Medium / High Signals", len(anomalies))
+
+with map_col4:
+    st.metric("Monitoring Center", "BLR / VOBL")
+
+st.caption(
+    "🟢 Normal   🟡 Low   🟠 Medium   🔴 High   "
+    "• Cyan boundary = 50 km monitoring perimeter"
+)
+
 
 
 # ============================================================
@@ -266,10 +611,19 @@ st.plotly_chart(
 
 st.subheader("🚨 Anomaly Alerts")
 
-st.write(
-    "Alerts are generated using rule-based checks "
-    "combined with Isolation Forest anomaly detection."
-)
+if SKLEARN_AVAILABLE:
+
+    st.write(
+        "Alerts are generated using rule-based checks "
+        "combined with Isolation Forest anomaly detection."
+    )
+
+else:
+
+    st.write(
+        "Alerts are generated using rule-based checks "
+        "combined with fallback anomaly scoring."
+    )
 
 
 alerts = df[
@@ -427,6 +781,40 @@ st.write(
 
 
 # ============================================================
+# INVESTIGATION SUMMARY
+# ============================================================
+
+st.markdown("### 📋 Investigation Summary")
+
+summary_col1, summary_col2, summary_col3 = st.columns(3)
+
+summary_col1.metric(
+    "Aircraft",
+    selected_aircraft_id
+)
+
+summary_col2.metric(
+    "Risk Score",
+    f"{selected_row['risk_score']:.1f} / 100"
+)
+
+summary_col3.metric(
+    "Risk Level",
+    selected_row["risk_level"]
+)
+
+st.write(
+    f"**Detection Reason:** "
+    f"{selected_row['explanation']}"
+)
+
+st.write(
+    f"**ML Anomaly Score:** "
+    f"{selected_row['ml_anomaly_score']:.3f}"
+)
+
+
+# ============================================================
 # EXPLANATION
 # ============================================================
 
@@ -484,15 +872,197 @@ for signal, detected in evidence.items():
 
 
 # ============================================================
-# ISOLATION FOREST SCORE
+# EVIDENCE DETAILS
 # ============================================================
 
-st.markdown("### 🤖 Isolation Forest")
+st.markdown("### 📊 Evidence Details")
+
+evidence_details = pd.DataFrame({
+
+    "Signal": [
+        "Speed",
+        "Altitude",
+        "Position Change",
+        "Altitude Change"
+    ],
+
+    "Observed Value": [
+        f"{selected_row['speed']:.1f}",
+        f"{selected_row['altitude']:.1f}",
+        f"{selected_row['position_change']:.3f}",
+        f"{selected_row['abs_altitude_change']:.1f}"
+    ],
+
+    "Detection Threshold": [
+        "≤ 800",
+        "20,000 – 45,000",
+        "≤ 0.5",
+        "≤ 2,000"
+    ],
+
+    "Status": [
+        "ANOMALY"
+        if selected_row["speed_anomaly"]
+        else "NORMAL",
+
+        "ANOMALY"
+        if selected_row["altitude_anomaly"]
+        else "NORMAL",
+
+        "ANOMALY"
+        if selected_row["position_anomaly"]
+        else "NORMAL",
+
+        "ANOMALY"
+        if selected_row["altitude_change_anomaly"]
+        else "NORMAL"
+    ]
+})
 
 
-ml_score = selected_row[
-    "ml_anomaly_score"
-]
+st.dataframe(
+    evidence_details,
+    width="stretch",
+    hide_index=True
+)
+
+
+# ============================================================
+# RISK ASSESSMENT
+# ============================================================
+
+st.markdown("### 🎯 Risk Assessment")
+
+risk_score = float(
+    selected_row["risk_score"]
+)
+
+risk_col1, risk_col2 = st.columns([1, 2])
+
+
+with risk_col1:
+
+    st.metric(
+        "Overall Risk Score",
+        f"{risk_score:.1f} / 100"
+    )
+
+    if risk_score >= 75:
+
+        st.error("🔴 HIGH RISK")
+
+    elif risk_score >= 50:
+
+        st.warning("🟠 MEDIUM RISK")
+
+    elif risk_score >= 25:
+
+        st.info("🟡 LOW RISK")
+
+    else:
+
+        st.success("🟢 NORMAL")
+
+
+with risk_col2:
+
+    st.progress(
+        min(risk_score / 100, 1.0)
+    )
+
+    st.write(
+        "Risk is calculated by combining "
+        "rule-based evidence with the "
+        "machine-learning anomaly score."
+    )
+
+
+# ============================================================
+# RECOMMENDED RESPONSE
+# ============================================================
+
+st.markdown("### 🛡️ Recommended Response")
+
+st.caption(
+    "SKYGUARD provides decision support. "
+    "Final investigation decisions remain with human operators."
+)
+
+
+if highest_risk_level == "HIGH":
+
+    st.error("🚨 INVESTIGATE IMMEDIATELY")
+
+    st.write(
+        "• Review the aircraft trajectory"
+    )
+
+    st.write(
+        "• Verify speed and altitude behavior"
+    )
+
+    st.write(
+        "• Check for multiple anomaly signals"
+    )
+
+    st.write(
+        "• Escalate for human investigation if required"
+    )
+
+elif highest_risk_level == "MEDIUM":
+
+    st.warning("⚠️ REVIEW AIRCRAFT TRAJECTORY")
+
+    st.write(
+        "• Review the detected anomaly signals"
+    )
+
+    st.write(
+        "• Monitor subsequent observations"
+    )
+
+    st.write(
+        "• Investigate if suspicious behavior continues"
+    )
+
+elif highest_risk_level == "LOW":
+
+    st.info("👀 CONTINUE MONITORING")
+
+    st.write(
+        "• Continue observing aircraft behavior"
+    )
+
+    st.write(
+        "• Check whether additional anomalies appear"
+    )
+
+else:
+
+    st.success("✅ NO IMMEDIATE ACTION REQUIRED")
+
+    st.write(
+        "The observed behavior does not currently "
+        "show significant anomaly evidence."
+    )
+
+
+# ============================================================
+# ML ANOMALY SCORE
+# ============================================================
+
+if SKLEARN_AVAILABLE:
+
+    st.markdown("### 🤖 Isolation Forest")
+
+else:
+
+    st.markdown("### 🤖 Fallback Anomaly Scoring")
+
+
+ml_score = float(
+    selected_row["ml_anomaly_score"]
+)
 
 
 st.write(
@@ -501,28 +1071,50 @@ st.write(
 
 
 st.progress(
-    float(ml_score)
+    min(ml_score, 1.0)
 )
 
 
-if ml_score >= 0.7:
+if SKLEARN_AVAILABLE:
 
-    st.error(
-        "Isolation Forest classified this observation "
-        "as highly unusual."
-    )
+    if ml_score >= 0.7:
 
-elif ml_score >= 0.4:
+        st.error(
+            "Isolation Forest classified this observation "
+            "as highly unusual."
+        )
 
-    st.warning(
-        "Isolation Forest detected moderately unusual behavior."
-    )
+    elif ml_score >= 0.4:
+
+        st.warning(
+            "Isolation Forest detected moderately unusual behavior."
+        )
+
+    else:
+
+        st.success(
+            "Isolation Forest found relatively normal behavior."
+        )
 
 else:
 
-    st.success(
-        "Isolation Forest found relatively normal behavior."
-    )
+    if ml_score >= 0.7:
+
+        st.warning(
+            "Fallback anomaly scoring indicates highly unusual behavior."
+        )
+
+    elif ml_score >= 0.4:
+
+        st.info(
+            "Fallback anomaly scoring indicates moderately unusual behavior."
+        )
+
+    else:
+
+        st.success(
+            "Fallback anomaly scoring indicates relatively normal behavior."
+        )
 
 
 # ============================================================
@@ -566,7 +1158,12 @@ st.plotly_chart(
 st.markdown("### 📋 Selected Observation")
 
 
+# Convert every value to string.
+# This prevents Streamlit/PyArrow errors caused by
+# mixing Timestamp, float, integer and string values.
+
 details = pd.DataFrame({
+
     "Parameter": [
         "Aircraft ID",
         "Timestamp",
@@ -580,15 +1177,15 @@ details = pd.DataFrame({
     ],
 
     "Value": [
-        selected_row["aircraft_id"],
-        selected_row["timestamp"],
-        selected_row["latitude"],
-        selected_row["longitude"],
-        selected_row["altitude"],
-        selected_row["speed"],
-        selected_row["risk_score"],
-        selected_row["risk_level"],
-        selected_row["ml_anomaly_score"]
+        str(selected_row["aircraft_id"]),
+        str(selected_row["timestamp"]),
+        str(selected_row["latitude"]),
+        str(selected_row["longitude"]),
+        str(selected_row["altitude"]),
+        str(selected_row["speed"]),
+        str(selected_row["risk_score"]),
+        str(selected_row["risk_level"]),
+        str(selected_row["ml_anomaly_score"])
     ]
 })
 
