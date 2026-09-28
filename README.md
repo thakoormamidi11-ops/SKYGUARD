@@ -64,3 +64,18 @@ Risk Score
 Explanation
      ↓
 Streamlit Dashboard
+
+### Emergency Squawk Detection
+
+SKYGUARD monitors aircraft transponder squawk codes and highlights
+emergency codes:
+
+- 7500 — Unlawful interference
+- 7600 — Communication failure
+- 7700 — General emergency
+
+Emergency squawks are treated as high-priority signals and are included
+in the aircraft risk assessment and explanation.
+
+> Note: In the current prototype, squawk values are simulated because
+> the demonstration dataset does not contain a real squawk field.
