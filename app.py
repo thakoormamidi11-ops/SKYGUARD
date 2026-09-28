@@ -108,6 +108,95 @@ except Exception as e:
     st.code(str(e))
 
     st.stop()
+# ============================================================
+# EMERGENCY SQUAWK DETECTION
+# ============================================================
+
+# Emergency transponder codes used in the prototype.
+SQUAWK_MEANINGS = {
+    "7500": "Unlawful interference",
+    "7600": "Communication failure",
+    "7700": "General emergency"
+}
+
+# Prototype/demo squawk assignments.
+# These are simulated because the current dataset does not
+# contain a real squawk column.
+DEMO_SQUAWKS = {
+    "A123": "7000",
+    "B456": "7000",
+    "C789": "7700",
+    "D321": "7000",
+    "E654": "7000"
+}
+
+# Use a real squawk column if one is added to the dataset later.
+if "squawk" not in df.columns:
+
+    df["squawk"] = (
+        df["aircraft_id"]
+        .map(DEMO_SQUAWKS)
+        .fillna("7000")
+    )
+
+else:
+
+    df["squawk"] = (
+        df["squawk"]
+        .astype(str)
+        .str.replace(".0", "", regex=False)
+        .str.zfill(4)
+    )
+
+df["emergency_squawk"] = (
+    df["squawk"].isin(
+        SQUAWK_MEANINGS.keys()
+    )
+)
+
+df["squawk_description"] = (
+    df["squawk"]
+    .map(SQUAWK_MEANINGS)
+    .fillna("Normal transponder code")
+)
+
+# Emergency squawk gets priority in the prototype.
+emergency_mask = df["emergency_squawk"]
+
+df.loc[
+    emergency_mask,
+    "risk_score"
+] = df.loc[
+    emergency_mask,
+    "risk_score"
+].clip(lower=75)
+
+df.loc[
+    emergency_mask,
+    "risk_level"
+] = "HIGH"
+
+# Add the squawk information to the existing explanation.
+df.loc[
+    emergency_mask,
+    "explanation"
+] = (
+    "EMERGENCY SQUAWK "
+    + df.loc[
+        emergency_mask,
+        "squawk"
+    ]
+    + " — "
+    + df.loc[
+        emergency_mask,
+        "squawk_description"
+    ]
+    + " + "
+    + df.loc[
+        emergency_mask,
+        "explanation"
+    ]
+)    
 
 
 # ============================================================
@@ -479,6 +568,7 @@ for aircraft_id in aircraft_ids:
                 f"<br>Risk Score: {latest['risk_score']:.1f}/100"
                 f"<br>Altitude: {latest['altitude']:.0f} ft"
                 f"<br>Speed: {latest['speed']:.0f}"
+                f"<br>Squawk: {latest['squawk']}"
                 f"<br>Distance from BLR: {latest_distance:.1f} km"
                 f"<br>Reason: {latest['explanation']}"
                 "<extra></extra>"
@@ -654,6 +744,7 @@ else:
                 "longitude",
                 "altitude",
                 "speed",
+                "squawk",
                 "risk_score",
                 "risk_level",
                 "explanation"
@@ -852,9 +943,11 @@ evidence = {
         ),
 
     "🤖 ML Anomaly":
-        selected_row["ml_prediction"] == -1
-}
+        selected_row["ml_prediction"] == -1,
 
+    "📡 Emergency Squawk":
+        bool(selected_row["emergency_squawk"])
+}
 
 for signal, detected in evidence.items():
 
@@ -1173,7 +1266,9 @@ details = pd.DataFrame({
         "Speed",
         "Risk Score",
         "Risk Level",
-        "ML Anomaly Score"
+        "ML Anomaly Score",
+        "Squawk",
+        "Squawk Meaning"
     ],
 
     "Value": [
@@ -1183,6 +1278,8 @@ details = pd.DataFrame({
         str(selected_row["longitude"]),
         str(selected_row["altitude"]),
         str(selected_row["speed"]),
+        str(selected_row["squawk"]),
+        str(selected_row["squawk_description"]),
         str(selected_row["risk_score"]),
         str(selected_row["risk_level"]),
         str(selected_row["ml_anomaly_score"])
